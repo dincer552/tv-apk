@@ -306,6 +306,7 @@ private fun TvRemoteApp(
 ) {
     var screen by remember { mutableStateOf(AppScreen.REMOTE) }
     var wifiHost by remember { mutableStateOf(initialWifiHost) }
+    var useWifi by remember { mutableStateOf(true) }
     LaunchedEffect(wifiState.value) {
         if (wifiState.value is SamsungWifiState.Connected) screen = AppScreen.REMOTE
     }
@@ -319,17 +320,15 @@ private fun TvRemoteApp(
     }
 
     fun pressKey(key: String) {
-        if (wifiState.value is SamsungWifiState.Connected && onWifiSend(key)) {
-            status = remoteKeys.first { it.id == key }.title + " · Wi-Fi"
+        val title = remoteKeys.first { it.id == key }.title
+        if (useWifi) {
+            status = if (wifiState.value is SamsungWifiState.Connected && onWifiSend(key)) "$title · Wi-Fi"
+                else "Wi-Fi bağlı değil. Bağlantıyı kontrol et."
             return
         }
         val command = commands[key]
-        if (command == null) {
-            openSettings(key)
-        } else {
-            val error = onTransmit(command)
-            status = error ?: (remoteKeys.first { it.id == key }.title + " · IR")
-        }
+        if (command == null) status = "$title tuşu için IR ayarı yok. Üç nokta menüsünden Tuş ayarları ve test bölümünü aç."
+        else status = onTransmit(command) ?: "$title · IR"
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = RemoteBg) {
@@ -337,11 +336,12 @@ private fun TvRemoteApp(
             AppScreen.REMOTE -> RemoteScreen(
                 savedKeys = commands.keys,
                 onPress = ::pressKey,
-                onConfigure = ::openSettings,
                 onOpenButtonList = { screen = AppScreen.BUTTON_LIST },
                 onOpenInfo = { screen = AppScreen.IR_INFO },
                 onOpenWifi = { screen = AppScreen.WIFI_SETUP },
-                wifiConnected = wifiState.value is SamsungWifiState.Connected
+                wifiConnected = wifiState.value is SamsungWifiState.Connected,
+                useWifi = useWifi,
+                onToggleMode = { useWifi = !useWifi }
             )
             AppScreen.BUTTON_LIST -> ButtonListScreen(
                 commands = commands,
@@ -388,14 +388,43 @@ private fun TvRemoteApp(
 }
 
 @Composable
+private fun ModeSlider(useWifi: Boolean, onToggle: () -> Unit) {
+    val thumbOffset by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (useWifi) 3.dp else 57.dp,
+        label = "connection-mode-thumb"
+    )
+    Box(
+        modifier = Modifier.width(116.dp).height(34.dp).clip(RoundedCornerShape(20.dp))
+            .background(Color(0xFFDCE5F1)).clickable(onClick = onToggle).padding(2.dp)
+    ) {
+        Box(
+            modifier = Modifier.align(Alignment.CenterStart).offset(x = thumbOffset)
+                .width(54.dp).height(30.dp).clip(RoundedCornerShape(18.dp))
+                .background(Color(0xFF087CF0))
+        )
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                Text("Wi-Fi", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                    color = if (useWifi) Color.White else Color(0xFF334155))
+            }
+            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                Text("IR", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                    color = if (!useWifi) Color.White else Color(0xFF334155))
+            }
+        }
+    }
+}
+
+@Composable
 private fun RemoteScreen(
     savedKeys: Set<String>,
     onPress: (String) -> Unit,
-    onConfigure: (String) -> Unit,
     onOpenButtonList: () -> Unit,
     onOpenInfo: () -> Unit,
     onOpenWifi: () -> Unit,
-    wifiConnected: Boolean
+    wifiConnected: Boolean,
+    useWifi: Boolean,
+    onToggleMode: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Column(
@@ -427,44 +456,43 @@ private fun RemoteScreen(
                 }
             }
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(6.dp))
+        ModeSlider(useWifi = useWifi, onToggle = onToggleMode)
+        Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            RemoteRoundButton("⏻", accent = RemoteGreen, configured = "Power" in savedKeys, onClick = { onPress("Power") }, onLongClick = { onConfigure("Power") })
-            RemoteRoundButton("⇥", configured = "Source" in savedKeys, onClick = { onPress("Source") }, onLongClick = { onConfigure("Source") })
-            RemoteRoundButton("☰", configured = "Menu" in savedKeys, onClick = { onPress("Menu") }, onLongClick = { onConfigure("Menu") })
+            RemoteRoundButton("⏻", accent = RemoteGreen, configured = "Power" in savedKeys, onClick = { onPress("Power") })
+            RemoteRoundButton("⇥", configured = "Source" in savedKeys, onClick = { onPress("Source") })
+            RemoteRoundButton("☰", configured = "Menu" in savedKeys, onClick = { onPress("Menu") })
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            RemoteRoundButton("⌂", configured = "Home" in savedKeys, onClick = { onPress("Home") }, onLongClick = { onConfigure("Home") })
-            RemoteRoundButton("①", configured = "Number 1" in savedKeys, onClick = { onPress("Number 1") }, onLongClick = { onConfigure("Number 1") })
-            RemoteRoundButton("↶", configured = "Back" in savedKeys, onClick = { onPress("Back") }, onLongClick = { onConfigure("Back") })
+            RemoteRoundButton("⌂", configured = "Home" in savedKeys, onClick = { onPress("Home") })
+            RemoteRoundButton("①", configured = "Number 1" in savedKeys, onClick = { onPress("Number 1") })
+            RemoteRoundButton("↶", configured = "Back" in savedKeys, onClick = { onPress("Back") })
         }
         Spacer(Modifier.weight(1f))
         DirectionPad(
             size = 264.dp,
             savedKeys = savedKeys,
-            onPress = onPress,
-            onConfigure = onConfigure
+            onPress = onPress
         )
         Spacer(Modifier.weight(1f))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             RemoteVerticalControl(
                 top = "⌃", middle = "CH", bottom = "⌄",
                 topConfigured = "CH+" in savedKeys, bottomConfigured = "CH-" in savedKeys,
-                onTop = { onPress("CH+") }, onBottom = { onPress("CH-") },
-                onTopLong = { onConfigure("CH+") }, onBottomLong = { onConfigure("CH-") }
+                onTop = { onPress("CH+") }, onBottom = { onPress("CH-") }
             )
             RemoteVerticalControl(
                 top = "+", middle = "VOL", bottom = "−",
                 topConfigured = "VOL+" in savedKeys, bottomConfigured = "VOL-" in savedKeys,
-                onTop = { onPress("VOL+") }, onBottom = { onPress("VOL-") },
-                onTopLong = { onConfigure("VOL+") }, onBottomLong = { onConfigure("VOL-") }
+                onTop = { onPress("VOL+") }, onBottom = { onPress("VOL-") }
             )
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            RemoteRoundButton("•••", buttonSize = 56.dp, configured = "More" in savedKeys, onClick = { onPress("More") }, onLongClick = { onConfigure("More") })
-            RemoteRoundButton("◁×", buttonSize = 56.dp, configured = "Mute" in savedKeys, onClick = { onPress("Mute") }, onLongClick = { onConfigure("Mute") })
+            RemoteRoundButton("•••", buttonSize = 56.dp, configured = "More" in savedKeys, onClick = { onPress("More") })
+            RemoteRoundButton("◁×", buttonSize = 56.dp, configured = "Mute" in savedKeys, onClick = { onPress("Mute") })
         }
     }
 }
@@ -475,12 +503,11 @@ private fun RemoteRoundButton(
     buttonSize: Dp = 66.dp,
     accent: Color = RemoteInk,
     configured: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
+    onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier.size(buttonSize).clip(CircleShape).background(Color.White)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Text(symbol, fontSize = if (buttonSize < 60.dp) 19.sp else 25.sp, color = accent)
@@ -491,8 +518,7 @@ private fun RemoteRoundButton(
 private fun DirectionPad(
     size: Dp,
     savedKeys: Set<String>,
-    onPress: (String) -> Unit,
-    onConfigure: (String) -> Unit
+    onPress: (String) -> Unit
 ) {
     Column(
         modifier = Modifier.size(size).clip(CircleShape).background(Color.White).padding(10.dp),
@@ -500,29 +526,29 @@ private fun DirectionPad(
     ) {
         Box(
             Modifier.weight(1f).fillMaxWidth()
-                .combinedClickable(onClick = { onPress("Up") }, onLongClick = { onConfigure("Up") }),
+                .clickable { onPress("Up") },
             contentAlignment = Alignment.Center
         ) { PadDot("Up" in savedKeys) }
         Row(Modifier.weight(1.25f).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.weight(1f).fillMaxHeight()
-                    .combinedClickable(onClick = { onPress("Left") }, onLongClick = { onConfigure("Left") }),
+                    .clickable { onPress("Left") },
                 contentAlignment = Alignment.Center
             ) { PadDot("Left" in savedKeys) }
             Box(
                 Modifier.size(92.dp).clip(CircleShape).background(RemoteBg)
-                    .combinedClickable(onClick = { onPress("OK") }, onLongClick = { onConfigure("OK") }),
+                    .clickable { onPress("OK") },
                 contentAlignment = Alignment.Center
             ) { Text("OK", fontSize = 20.sp, color = Color.Black) }
             Box(
                 Modifier.weight(1f).fillMaxHeight()
-                    .combinedClickable(onClick = { onPress("Right") }, onLongClick = { onConfigure("Right") }),
+                    .clickable { onPress("Right") },
                 contentAlignment = Alignment.Center
             ) { PadDot("Right" in savedKeys) }
         }
         Box(
             Modifier.weight(1f).fillMaxWidth()
-                .combinedClickable(onClick = { onPress("Down") }, onLongClick = { onConfigure("Down") }),
+                .clickable { onPress("Down") },
             contentAlignment = Alignment.Center
         ) { PadDot("Down" in savedKeys) }
     }
@@ -541,9 +567,7 @@ private fun RemoteVerticalControl(
     topConfigured: Boolean,
     bottomConfigured: Boolean,
     onTop: () -> Unit,
-    onBottom: () -> Unit,
-    onTopLong: () -> Unit,
-    onBottomLong: () -> Unit
+    onBottom: () -> Unit
 ) {
     Column(
         modifier = Modifier.width(82.dp).height(148.dp).clip(RoundedCornerShape(42.dp))
@@ -552,7 +576,7 @@ private fun RemoteVerticalControl(
     ) {
         Box(
             Modifier.weight(1f).fillMaxWidth()
-                .combinedClickable(onClick = onTop, onLongClick = onTopLong),
+                .clickable(onClick = onTop),
             contentAlignment = Alignment.Center
         ) {
             Text(top, fontSize = 25.sp, color = RemoteInk)
@@ -561,7 +585,7 @@ private fun RemoteVerticalControl(
         Text(middle, fontSize = 15.sp, color = RemoteInk)
         Box(
             Modifier.weight(1f).fillMaxWidth()
-                .combinedClickable(onClick = onBottom, onLongClick = onBottomLong),
+                .clickable(onClick = onBottom),
             contentAlignment = Alignment.Center
         ) {
             Text(bottom, fontSize = 25.sp, color = RemoteInk)
