@@ -114,7 +114,7 @@ object SamsungIr {
     private fun buildSamsung32(address: Int, command: Int): IrCommand {
         val addressByte = address and 0xFF
         val commandByte = command and 0xFF
-        val bytes = intArrayOf(addressByte, addressByte.inv() and 0xFF, commandByte, commandByte.inv() and 0xFF)
+        val bytes = intArrayOf(addressByte, addressByte, commandByte, commandByte.inv() and 0xFF)
         val values = mutableListOf<Int>()
         values += samsung32Timing.headerMark
         values += samsung32Timing.headerSpace
