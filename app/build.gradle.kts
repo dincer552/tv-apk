@@ -3,6 +3,8 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+val appCode = providers.gradleProperty("appVersionCode").orNull?.toIntOrNull() ?: 1
+val appName = providers.gradleProperty("appVersionName").orNull ?: "1.0.0"
 android {
     namespace = "com.dincer552.tvremote"
     compileSdk = 35
@@ -10,8 +12,8 @@ android {
         applicationId = "com.dincer552.tvremote"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = appCode
+        versionName = appName
     }
     buildTypes { debug { applicationIdSuffix = ".debug" }; release { isMinifyEnabled = false } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
