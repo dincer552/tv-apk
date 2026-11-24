@@ -5,6 +5,8 @@ package com.dincer552.tvremote
 import android.content.Context
 import android.hardware.ConsumerIrManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -142,15 +144,47 @@ object SamsungIr {
     }
 }
 
-private enum class AppScreen { REMOTE, BUTTON_LIST, BUTTON_SETTINGS, IR_INFO }
+private enum class AppScreen { REMOTE, BUTTON_LIST, BUTTON_SETTINGS, IR_INFO, WIFI_SETUP }
+
+private fun wifiKeyCode(key: String): String? = when (key) {
+    "Power" -> "KEY_POWER"
+    "Source" -> "KEY_SOURCE"
+    "Menu" -> "KEY_MENU"
+    "Home" -> "KEY_HOME"
+    "Number 1" -> "KEY_1"
+    "Back" -> "KEY_RETURN"
+    "Up" -> "KEY_UP"
+    "Down" -> "KEY_DOWN"
+    "Left" -> "KEY_LEFT"
+    "OK" -> "KEY_ENTER"
+    "Right" -> "KEY_RIGHT"
+    "CH+" -> "KEY_CHUP"
+    "CH-" -> "KEY_CHDOWN"
+    "VOL+" -> "KEY_VOLUP"
+    "VOL-" -> "KEY_VOLDOWN"
+    "More" -> "KEY_TOOLS"
+    "Mute" -> "KEY_MUTE"
+    else -> null
+}
 
 class MainActivity : ComponentActivity() {
     private lateinit var ir: ConsumerIrManager
+    private lateinit var wifiClient: SamsungWifiClient
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val wifiPreferences by lazy { getSharedPreferences("tv_wifi_profile", Context.MODE_PRIVATE) }
+    private val wifiState = mutableStateOf<SamsungWifiState>(SamsungWifiState.Disconnected)
+    private val tvInfo = mutableStateOf("")
+    private val discoveredIps = mutableStateOf<List<String>>(emptyList())
     private val preferences by lazy { getSharedPreferences("tv_remote_profile_v2", Context.MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ir = getSystemService(CONSUMER_IR_SERVICE) as ConsumerIrManager
+        wifiClient = SamsungWifiClient(
+            onState = { state -> mainHandler.post { wifiState.value = state } },
+            onToken = { token -> wifiPreferences.edit().putString("token", token).apply() },
+            onTvInfo = { info -> mainHandler.post { tvInfo.value = info.orEmpty() } }
+        )
         val initialCommands = loadCommands()
         val hasEmitter = runCatching { ir.hasIrEmitter() }.getOrDefault(false)
         val carrierRanges = runCatching {
@@ -164,7 +198,24 @@ class MainActivity : ComponentActivity() {
                     carrierRanges = carrierRanges,
                     initialCommands = initialCommands,
                     onTransmit = ::transmit,
-                    onPersist = ::persistCommands
+                    onPersist = ::persistCommands,
+                    wifiState = wifiState,
+                    initialWifiHost = wifiPreferences.getString("host", "") ?: "",
+                    initialWifiToken = wifiPreferences.getString("token", null),
+                    tvInfo = tvInfo,
+                    discoveredIps = discoveredIps,
+                    onWifiConnect = { ip ->
+                        wifiPreferences.edit().putString("host", ip.trim()).apply()
+                        wifiClient.connect(ip, wifiPreferences.getString("token", null))
+                    },
+                    onWifiDisconnect = { wifiClient.disconnect() },
+                    onWifiSend = { key -> wifiKeyCode(key)?.let(wifiClient::sendKey) ?: false },
+                    onWifiDiscover = {
+                        Thread {
+                            val found = SamsungWifiClient.discover()
+                            mainHandler.post { discoveredIps.value = found }
+                        }.start()
+                    }
                 )
             }
         }
@@ -182,6 +233,11 @@ class MainActivity : ComponentActivity() {
         } catch (error: Exception) {
             "IR gönderilemedi: " + (error.message ?: error.javaClass.simpleName)
         }
+    }
+
+    override fun onDestroy() {
+        if (::wifiClient.isInitialized) wifiClient.close()
+        super.onDestroy()
     }
 
     private fun loadCommands(): Map<String, IrCommand> {
@@ -222,9 +278,22 @@ private fun TvRemoteApp(
     carrierRanges: List<Pair<Int, Int>>,
     initialCommands: Map<String, IrCommand>,
     onTransmit: (IrCommand) -> String?,
-    onPersist: (Map<String, IrCommand>) -> Unit
+    onPersist: (Map<String, IrCommand>) -> Unit,
+    wifiState: androidx.compose.runtime.MutableState<SamsungWifiState>,
+    initialWifiHost: String,
+    initialWifiToken: String?,
+    tvInfo: androidx.compose.runtime.MutableState<String>,
+    discoveredIps: androidx.compose.runtime.MutableState<List<String>>,
+    onWifiConnect: (String) -> Unit,
+    onWifiDisconnect: () -> Unit,
+    onWifiSend: (String) -> Boolean,
+    onWifiDiscover: () -> Unit
 ) {
     var screen by remember { mutableStateOf(AppScreen.REMOTE) }
+    var wifiHost by remember { mutableStateOf(initialWifiHost) }
+    LaunchedEffect(wifiState.value) {
+        if (wifiState.value is SamsungWifiState.Connected) screen = AppScreen.REMOTE
+    }
     var selectedKey by remember { mutableStateOf("Power") }
     var commands by remember { mutableStateOf(initialCommands) }
     var status by remember { mutableStateOf(if (hasEmitter) "Kızılötesi verici hazır" else "Bu telefonda IR vericisi bulunamadı") }
@@ -251,7 +320,9 @@ private fun TvRemoteApp(
                 onPress = ::pressKey,
                 onConfigure = ::openSettings,
                 onOpenButtonList = { screen = AppScreen.BUTTON_LIST },
-                onOpenInfo = { screen = AppScreen.IR_INFO }
+                onOpenInfo = { screen = AppScreen.IR_INFO },
+                onOpenWifi = { screen = AppScreen.WIFI_SETUP },
+                wifiConnected = wifiState.value is SamsungWifiState.Connected
             )
             AppScreen.BUTTON_LIST -> ButtonListScreen(
                 commands = commands,
@@ -281,6 +352,18 @@ private fun TvRemoteApp(
                 carrierRanges = carrierRanges,
                 onBack = { screen = AppScreen.REMOTE }
             )
+            AppScreen.WIFI_SETUP -> WifiSetupScreen(
+                host = wifiHost,
+                onHostChange = { wifiHost = it },
+                state = wifiState.value,
+                tvInfo = tvInfo.value,
+                discoveredIps = discoveredIps.value,
+                onDiscover = onWifiDiscover,
+                onConnect = { onWifiConnect(wifiHost) },
+                onSelectIp = { wifiHost = it; onWifiConnect(it) },
+                onDisconnect = onWifiDisconnect,
+                onBack = { screen = AppScreen.REMOTE }
+            )
         }
     }
 }
@@ -291,7 +374,9 @@ private fun RemoteScreen(
     onPress: (String) -> Unit,
     onConfigure: (String) -> Unit,
     onOpenButtonList: () -> Unit,
-    onOpenInfo: () -> Unit
+    onOpenInfo: () -> Unit,
+    onOpenWifi: () -> Unit,
+    wifiConnected: Boolean
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Column(
@@ -311,6 +396,10 @@ private fun RemoteScreen(
                     DropdownMenuItem(
                         text = { Text("Tuş ayarları ve test") },
                         onClick = { menuExpanded = false; onOpenButtonList() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Wi-Fi bağlantısı" + if (wifiConnected) " · Bağlı" else "") },
+                        onClick = { menuExpanded = false; onOpenWifi() }
                     )
                     DropdownMenuItem(
                         text = { Text("IR verici bilgisi") },
@@ -696,5 +785,75 @@ private fun IrInfoScreen(
         }
         Spacer(Modifier.height(18.dp))
         Text("Samsung kodları farklı kumanda serilerinde değişebilir. Bu yüzden hiçbir kod otomatik olarak doğru kabul edilmez; yalnızca TV'de denediğinde çalıştığını onayladığın komut kaydedilir.", fontSize = 13.sp)
+    }
+}
+
+
+@Composable
+private fun WifiSetupScreen(
+    host: String,
+    onHostChange: (String) -> Unit,
+    state: SamsungWifiState,
+    tvInfo: String,
+    discoveredIps: List<String>,
+    onDiscover: () -> Unit,
+    onConnect: () -> Unit,
+    onSelectIp: (String) -> Unit,
+    onDisconnect: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(Modifier.fillMaxSize().padding(18.dp)) {
+        ScreenHeader("Samsung TV · Wi-Fi", onBack)
+        Text("Telefon ve televizyon aynı yerel Wi-Fi/ağ üzerinde olmalı. İlk bağlantıda TV ekranında izin penceresi açılır; kumandayla Allow/İzin Ver seç.", fontSize = 12.sp, color = Color.DarkGray)
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            value = host,
+            onValueChange = onHostChange,
+            label = { Text("Televizyon IP adresi") },
+            placeholder = { Text("Örn. 192.168.1.50") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onDiscover, modifier = Modifier.weight(1f)) { Text("AĞDA TV ARA") }
+            Button(onClick = onConnect, modifier = Modifier.weight(1f), enabled = host.isNotBlank()) { Text("BAĞLAN") }
+        }
+        if (discoveredIps.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text("Bulunan ağ cihazları · Samsung TV olanı seç", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            discoveredIps.forEach { ip ->
+                TextButton(onClick = { onSelectIp(ip) }) { Text("TV adayı: $ip") }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Surface(color = Color.White, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text(
+                    when (state) {
+                        SamsungWifiState.Disconnected -> "Bağlı değil"
+                        SamsungWifiState.Connecting -> "TV aranıyor ve bağlantı kuruluyor…"
+                        SamsungWifiState.WaitingForApproval -> "TV ekranında bağlantı izni bekleniyor. Kumandayla Allow seç."
+                        SamsungWifiState.Connected -> "Wi-Fi bağlantısı kuruldu"
+                        is SamsungWifiState.Failed -> "Bağlantı hatası: " + state.reason
+                    },
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    color = if (state is SamsungWifiState.Connected) RemoteGreen else RemoteInk
+                )
+                if (tvInfo.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(tvInfo, fontSize = 11.sp, color = Color.Gray)
+                }
+                if (state is SamsungWifiState.Connected || state is SamsungWifiState.WaitingForApproval) {
+                    TextButton(onClick = onDisconnect) { Text("Bağlantıyı kes") }
+                }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("Wi-Fi destek bilgisi", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Text("Bu bağlantı Samsung Tizen TV'lerin yerel WebSocket kumanda servisini kullanır (genellikle 2016 ve sonrası). Eski Orsay modelleri bu yöntemle uyumlu olmayabilir. Wi-Fi bağlantısı kurulamazsa kızılötesi tuş eşlemesini kullanmaya devam edebilirsin.", fontSize = 11.sp, color = Color.Gray)
+        Spacer(Modifier.weight(1f))
+        TextButton(onClick = onBack, modifier = Modifier.align(Alignment.End)) { Text("Kumandaya dön") }
     }
 }
