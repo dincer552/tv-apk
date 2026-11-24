@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -100,8 +101,8 @@ object SamsungIr {
         values += timing.headerMark
         values += timing.headerSpace
         for (bit in 0 until 32) {
-            values += if ((code shr bit) and 1L == 1L) timing.oneMark else timing.zeroMark
-            values += if ((code shr bit) and 1L == 1L) timing.oneSpace else timing.zeroSpace
+            values += if (((code shr bit) and 1L) == 1L) timing.oneMark else timing.zeroMark
+            values += if (((code shr bit) and 1L) == 1L) timing.oneSpace else timing.zeroSpace
         }
         values += timing.trailMark
         values += timing.gap
