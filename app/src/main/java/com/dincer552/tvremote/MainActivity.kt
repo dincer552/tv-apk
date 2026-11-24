@@ -212,7 +212,7 @@ class MainActivity : ComponentActivity() {
                     onWifiSend = { key -> wifiKeyCode(key)?.let(wifiClient::sendKey) ?: false },
                     onWifiDiscover = {
                         Thread {
-                            val found = SamsungWifiClient.discover()
+                            val found = SamsungWifiClient.discover(applicationContext)
                             mainHandler.post { discoveredIps.value = found }
                         }.start()
                     }
