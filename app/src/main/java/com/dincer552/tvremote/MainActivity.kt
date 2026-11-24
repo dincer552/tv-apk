@@ -304,12 +304,16 @@ private fun TvRemoteApp(
     }
 
     fun pressKey(key: String) {
+        if (wifiState.value is SamsungWifiState.Connected && onWifiSend(key)) {
+            status = remoteKeys.first { it.id == key }.title + " · Wi-Fi"
+            return
+        }
         val command = commands[key]
         if (command == null) {
             openSettings(key)
         } else {
             val error = onTransmit(command)
-            status = error ?: (remoteKeys.first { it.id == key }.title + " komutu gönderildi")
+            status = error ?: (remoteKeys.first { it.id == key }.title + " · IR")
         }
     }
 
