@@ -1,20 +1,27 @@
-name: Android Build
+name: TV Remote Android Build
 on:
   push:
-    branches: [main]
+    branches: ["main"]
   pull_request:
-    branches: [main]
+    branches: ["main"]
   workflow_dispatch:
-permissions:
-  contents: write
-  id-token: write
+
 concurrency:
   group: tv-remote-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  APP_VERSION_CODE: ${{ github.run_number }}
+  APP_VERSION_NAME: 1.0.${{ github.run_number }}
+  APK_SIGNING_SERVICE_URL: https://signer.dinceryuksek.com
+
 jobs:
-  build:
+  validate:
+    name: Build and validate TV Remote
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 40
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v5
@@ -27,18 +34,109 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11.1"
-      - name: Unit tests
-        run: gradle --no-daemon testDebugUnitTest
-      - name: Build APKs
+      - name: Unit tests and APK builds
         run: |
-          gradle --no-daemon assembleDebug assembleRelease
-          mkdir -p output
-          cp app/build/outputs/apk/debug/app-debug.apk output/tv-remote-debug.apk
-          cp app/build/outputs/apk/release/app-release-unsigned.apk output/tv-remote-unsigned.apk
-      - name: Upload test APKs
+          set -euo pipefail
+          gradle --no-daemon -PappVersionCode="$APP_VERSION_CODE" -PappVersionName="$APP_VERSION_NAME" testDebugUnitTest assembleDebug assembleRelease
+          DEBUG_APK="$(find app/build/outputs/apk/debug -name '*.apk' -print -quit)"
+          RELEASE_APK="$(find app/build/outputs/apk/release -name '*.apk' -print -quit)"
+          test -s "$DEBUG_APK" && test -s "$RELEASE_APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$DEBUG_APK" | grep -F "package: name='com.dincer552.tvremote.debug' versionCode='$APP_VERSION_CODE'"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$RELEASE_APK" | grep -F "package: name='com.dincer552.tvremote' versionCode='$APP_VERSION_CODE'"
+          mkdir -p dist
+          cp "$DEBUG_APK" dist/tv-remote-debug.apk
+          cp "$RELEASE_APK" dist/tv-remote-unsigned.apk
+      - name: Upload debug APK for phone testing
         uses: actions/upload-artifact@v4
         with:
-          name: tv-remote-test-apks
-          path: output/*.apk
+          name: tv-remote-debug-${{ env.APP_VERSION_NAME }}
+          path: dist/tv-remote-debug.apk
           if-no-files-found: error
           retention-days: 30
+      - name: Upload unsigned release for signing
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-remote-unsigned-${{ env.APP_VERSION_NAME }}
+          path: dist/tv-remote-unsigned.apk
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Sign and publish TV Remote
+    needs: validate
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tv-remote-unsigned-${{ env.APP_VERSION_NAME }}
+          path: ${{ runner.temp }}/unsigned
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0"
+      - name: Check central signer
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 "${APK_SIGNING_SERVICE_URL%/}/health" -o "$RUNNER_TEMP/signer-health.json"
+          grep -q '"ok":true' "$RUNNER_TEMP/signer-health.json"
+          grep -q '"oidc":true' "$RUNNER_TEMP/signer-health.json"
+      - name: Obtain GitHub OIDC token
+        id: oidc
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --fail --silent --show-error -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=socialworst-apk-signer")"
+          TOKEN="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$RESPONSE")"
+          test -n "$TOKEN"
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+      - name: Bootstrap or confirm signing profile
+        env:
+          SIGNING_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE="$(curl --silent --show-error --max-time 60 -X POST "${APK_SIGNING_SERVICE_URL%/}/v1/bootstrap" -H "Authorization: Bearer $SIGNING_OIDC_TOKEN" -F "key_id=tv-remote" -F "package_name=com.dincer552.tvremote" -o "$RUNNER_TEMP/bootstrap.json" -w "%{http_code}")"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::TV Remote signing profile bootstrap failed (HTTP $CODE)."
+            cat "$RUNNER_TEMP/bootstrap.json"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/bootstrap.json"
+      - name: Sign APK with persistent TV Remote key
+        env:
+          SIGNING_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODE="$(curl --silent --show-error --max-time 180 -X POST "${APK_SIGNING_SERVICE_URL%/}/v1/sign" -H "Authorization: Bearer $SIGNING_OIDC_TOKEN" -F "key_id=tv-remote" -F "apk=@$RUNNER_TEMP/unsigned/tv-remote-unsigned.apk;type=application/vnd.android.package-archive" -o "$RUNNER_TEMP/tv-remote-sign-response.bin" -w "%{http_code}")"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::TV Remote APK signing failed (HTTP $CODE)."
+            cat "$RUNNER_TEMP/tv-remote-sign-response.bin"
+            exit 1
+          fi
+          mv "$RUNNER_TEMP/tv-remote-sign-response.bin" "$RUNNER_TEMP/tv-remote.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$RUNNER_TEMP/tv-remote.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$RUNNER_TEMP/tv-remote.apk" | grep -F "package: name='com.dincer552.tvremote' versionCode='$APP_VERSION_CODE'"
+      - name: Publish signed release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.APP_VERSION_NAME }}
+          name: TV Remote v${{ env.APP_VERSION_NAME }}
+          target_commitish: main
+          make_latest: true
+          generate_release_notes: true
+          files: ${{ runner.temp }}/tv-remote.apk
+          fail_on_unmatched_files: true
+      - name: Upload signed APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-remote-signed-${{ env.APP_VERSION_NAME }}
+          path: ${{ runner.temp }}/tv-remote.apk
+          if-no-files-found: error
+          retention-days: 90
