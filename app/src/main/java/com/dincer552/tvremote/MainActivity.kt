@@ -182,7 +182,10 @@ class MainActivity : ComponentActivity() {
         ir = getSystemService(CONSUMER_IR_SERVICE) as ConsumerIrManager
         wifiClient = SamsungWifiClient(
             onState = { state -> mainHandler.post { wifiState.value = state } },
-            onToken = { token -> wifiPreferences.edit().putString("token", token).commit() },
+            onToken = { token ->
+                if (token.isBlank()) wifiPreferences.edit().remove("token").commit()
+                else wifiPreferences.edit().putString("token", token).commit()
+            },
             onTvInfo = { info -> mainHandler.post { tvInfo.value = info.orEmpty() } }
         )
         val initialCommands = loadCommands()
