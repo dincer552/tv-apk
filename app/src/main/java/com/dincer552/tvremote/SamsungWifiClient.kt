@@ -1,5 +1,7 @@
 package com.dincer552.tvremote
 
+import android.content.Context
+import android.net.wifi.WifiManager
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -185,13 +187,16 @@ class SamsungWifiClient(
     }.getOrNull()
 
     companion object {
-        fun discover(timeoutMs: Int = 2500): List<String> {
+        fun discover(context: Context, timeoutMs: Int = 2500): List<String> {
+            val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val multicastLock = wifi.createMulticastLock("tvremote-ssdp").apply { setReferenceCounted(false); acquire() }
             val targets = listOf(
                 "urn:samsung.com:device:RemoteControlReceiver:1",
                 "urn:dial-multiscreen-org:service:dial:1",
                 "urn:schemas-upnp-org:device:MediaRenderer:1"
             )
             val found = linkedSetOf<String>()
+            try {
             DatagramSocket().use { socket ->
                 socket.soTimeout = 300
                 val group = InetAddress.getByName("239.255.255.250")
@@ -217,6 +222,9 @@ class SamsungWifiClient(
                 }
             }
             return found.toList()
+            } finally {
+                if (multicastLock.isHeld) multicastLock.release()
+            }
         }
     }
 }
