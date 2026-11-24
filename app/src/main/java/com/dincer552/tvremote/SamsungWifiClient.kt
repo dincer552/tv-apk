@@ -83,7 +83,9 @@ class SamsungWifiClient(
             val request = Request.Builder().url(url).build()
             socket = http.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    if (approved) onState(SamsungWifiState.Connected)
+                    // A saved token is being validated by the TV. Do not show Connected
+                    // until Samsung confirms ms.channel.connect.
+                    if (approved) onState(SamsungWifiState.Connecting)
                     else onState(SamsungWifiState.WaitingForApproval)
                 }
 
@@ -99,7 +101,12 @@ class SamsungWifiClient(
                             }
                             onState(SamsungWifiState.Connected)
                         }
-                        "ms.channel.unauthorized" -> onState(SamsungWifiState.Failed("TV bağlantıyı reddetti. TV ekranındaki izin isteğini kontrol et."))
+                        "ms.channel.unauthorized" -> {
+                            approved = false
+                            token = null
+                            onToken("")
+                            onState(SamsungWifiState.Failed("TV kayıtlı bağlantı anahtarını kabul etmedi. TV eşleştirmeyi sıfırladıysa yeniden izin vermen gerekebilir."))
+                        }
                         "ms.channel.timeOut" -> onState(SamsungWifiState.Failed("TV eşleştirme isteğinin süresi doldu. Yeniden bağlan."))
                     }
                 }
