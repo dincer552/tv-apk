@@ -1,0 +1,44 @@
+name: Android Build
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+  id-token: write
+concurrency:
+  group: tv-remote-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+      - name: Unit tests
+        run: gradle --no-daemon testDebugUnitTest
+      - name: Build APKs
+        run: |
+          gradle --no-daemon assembleDebug assembleRelease
+          mkdir -p output
+          cp app/build/outputs/apk/debug/app-debug.apk output/tv-remote-debug.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk output/tv-remote-unsigned.apk
+      - name: Upload test APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-remote-test-apks
+          path: output/*.apk
+          if-no-files-found: error
+          retention-days: 30
