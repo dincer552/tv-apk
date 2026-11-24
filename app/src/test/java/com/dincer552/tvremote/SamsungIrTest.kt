@@ -34,9 +34,14 @@ class SamsungIrTest {
     fun samsung32UsesAddressByteTwiceAndInvertedCommand() {
         val values = SamsungIr.candidates("Power")[2].pattern.split(",").map(String::toInt)
         // Samsung32 payload bytes for this candidate are 07 07 02 FD.
-        // The first two address bytes must therefore encode the same 0x07 value.
-        val expectedAddressBytePairs = listOf(550, 1650, 550, 1650, 550, 1650, 550, 550)
-        assertEquals(expectedAddressBytePairs, values.subList(2, 18).chunked(2).map { it[0] to it[1] }.flatMap { listOf(it.first, it.second) })
+        val expectedAddress = listOf(
+            550, 1650, 550, 1650, 550, 1650,
+            550, 550, 550, 550, 550, 550, 550, 550, 550, 550
+        )
+        val firstAddressByte = values.subList(2, 18)
+        val secondAddressByte = values.subList(18, 34)
+        assertEquals(expectedAddress, firstAddressByte)
+        assertEquals(firstAddressByte, secondAddressByte)
     }
 
     @Test
