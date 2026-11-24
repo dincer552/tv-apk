@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package com.dincer552.tvremote
 
 import android.content.Context
@@ -246,7 +248,6 @@ private fun TvRemoteApp(
         when (screen) {
             AppScreen.REMOTE -> RemoteScreen(
                 savedKeys = commands.keys,
-                status = status,
                 onPress = ::pressKey,
                 onConfigure = ::openSettings,
                 onOpenButtonList = { screen = AppScreen.BUTTON_LIST },
@@ -287,7 +288,6 @@ private fun TvRemoteApp(
 @Composable
 private fun RemoteScreen(
     savedKeys: Set<String>,
-    status: String,
     onPress: (String) -> Unit,
     onConfigure: (String) -> Unit,
     onOpenButtonList: () -> Unit,
@@ -358,8 +358,6 @@ private fun RemoteScreen(
             RemoteRoundButton("•••", buttonSize = 56.dp, configured = "More" in savedKeys, onClick = { onPress("More") }, onLongClick = { onConfigure("More") })
             RemoteRoundButton("◁×", buttonSize = 56.dp, configured = "Mute" in savedKeys, onClick = { onPress("Mute") }, onLongClick = { onConfigure("Mute") })
         }
-        Spacer(Modifier.height(4.dp))
-        Text(status, fontSize = 10.sp, color = Color.Gray, maxLines = 1)
     }
 }
 
@@ -378,12 +376,6 @@ private fun RemoteRoundButton(
         contentAlignment = Alignment.Center
     ) {
         Text(symbol, fontSize = if (buttonSize < 60.dp) 19.sp else 25.sp, color = accent)
-        if (configured) {
-            Box(
-                Modifier.align(Alignment.BottomEnd).padding(10.dp).size(5.dp)
-                    .background(RemoteGreen, CircleShape)
-            )
-        }
     }
 }
 
@@ -430,12 +422,7 @@ private fun DirectionPad(
 
 @Composable
 private fun PadDot(configured: Boolean) {
-    Box(
-        Modifier.size(8.dp).background(
-            if (configured) RemoteGreen.copy(alpha = 0.65f) else Color(0xFFE8E8E8),
-            CircleShape
-        )
-    )
+    Box(Modifier.size(8.dp).background(Color(0xFFE8E8E8), CircleShape))
 }
 
 @Composable
