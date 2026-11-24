@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
         ir = getSystemService(CONSUMER_IR_SERVICE) as ConsumerIrManager
         wifiClient = SamsungWifiClient(
             onState = { state -> mainHandler.post { wifiState.value = state } },
-            onToken = { token -> wifiPreferences.edit().putString("token", token).apply() },
+            onToken = { token -> wifiPreferences.edit().putString("token", token).commit() },
             onTvInfo = { info -> mainHandler.post { tvInfo.value = info.orEmpty() } }
         )
         val initialCommands = loadCommands()
@@ -205,7 +205,7 @@ class MainActivity : ComponentActivity() {
                     tvInfo = tvInfo,
                     discoveredIps = discoveredIps,
                     onWifiConnect = { ip ->
-                        wifiPreferences.edit().putString("host", ip.trim()).apply()
+                        wifiPreferences.edit().putString("host", ip.trim()).commit()
                         wifiClient.connect(ip, wifiPreferences.getString("token", null))
                     },
                     onWifiDisconnect = { wifiClient.disconnect() },
@@ -218,6 +218,18 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             }
+        }
+
+        // Restore the previously paired Samsung TV automatically.
+        // A saved token is reused, so normal app restarts do not ask for TV approval again.
+        val savedHost = wifiPreferences.getString("host", null)
+        val savedToken = wifiPreferences.getString("token", null)
+        if (!savedHost.isNullOrBlank() && !savedToken.isNullOrBlank()) {
+            mainHandler.postDelayed({
+                if (!isFinishing && !isDestroyed) {
+                    wifiClient.connect(savedHost, savedToken)
+                }
+            }, 500)
         }
     }
 
