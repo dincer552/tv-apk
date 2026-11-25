@@ -54,6 +54,9 @@ class SamsungWifiClient(
         )
         .hostnameVerifier { _, _ -> true }
         .connectTimeout(5, TimeUnit.SECONDS)
+        // Samsung TVs can silently drop idle WebSockets on busy home networks.
+        // Periodic protocol ping detects dead links before the user next presses a key.
+        .pingInterval(20, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
