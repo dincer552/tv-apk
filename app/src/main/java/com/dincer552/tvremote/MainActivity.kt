@@ -1072,11 +1072,12 @@ private fun WifiSetupScreen(
                         SamsungWifiState.Connecting -> "TV aranıyor ve bağlantı kuruluyor…"
                         SamsungWifiState.WaitingForApproval -> "TV ekranında bağlantı izni bekleniyor. Kumandayla Allow seç."
                         SamsungWifiState.Connected -> "Wi-Fi bağlantısı kuruldu"
+                        is SamsungWifiState.Reconnecting -> "Bağlantı kesildi · " + state.delaySeconds + " sn sonra yeniden denenecek (deneme " + state.attempt + ")"
                         is SamsungWifiState.Failed -> "Bağlantı hatası: " + state.reason
                     },
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 13.sp,
-                    color = if (state is SamsungWifiState.Connected) RemoteGreen else RemoteInk
+                    color = if (state is SamsungWifiState.Connected) RemoteGreen else if (state is SamsungWifiState.Reconnecting) Color(0xFFB7791F) else RemoteInk
                 )
                 if (tvInfo.isNotBlank()) {
                     Spacer(Modifier.height(4.dp))
