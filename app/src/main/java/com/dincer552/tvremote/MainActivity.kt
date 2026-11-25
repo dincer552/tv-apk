@@ -18,6 +18,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -717,7 +718,39 @@ private fun RemoteRoundButton(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Text(symbol, fontSize = if (buttonSize < 60.dp) 19.sp else 25.sp, color = accent)
+        if (symbol == "⏻") {
+            // Draw the power glyph ourselves so it renders consistently on devices
+            // whose system font does not contain the Unicode power character.
+            Canvas(Modifier.size(if (buttonSize < 60.dp) 25.dp else 30.dp)) {
+                val stroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = 2.4.dp.toPx(),
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round
+                )
+                val diameter = size.minDimension
+                val radius = diameter * 0.36f
+                val left = (size.width - radius * 2f) / 2f
+                val top = (size.height - radius * 2f) / 2f + diameter * 0.08f
+                drawArc(
+                    color = accent,
+                    startAngle = 45f,
+                    sweepAngle = 270f,
+                    useCenter = false,
+                    topLeft = androidx.compose.ui.geometry.Offset(left, top),
+                    size = androidx.compose.ui.geometry.Size(radius * 2f, radius * 2f),
+                    style = stroke
+                )
+                val centerX = size.width / 2f
+                drawLine(
+                    color = accent,
+                    start = androidx.compose.ui.geometry.Offset(centerX, diameter * 0.08f),
+                    end = androidx.compose.ui.geometry.Offset(centerX, diameter * 0.52f),
+                    strokeWidth = 2.6.dp.toPx(),
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round
+                )
+            }
+        } else {
+            Text(symbol, fontSize = if (buttonSize < 60.dp) 19.sp else 25.sp, color = accent)
+        }
     }
 }
 
