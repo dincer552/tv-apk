@@ -55,6 +55,7 @@ class BluetoothHidClient(
             hid = null
             registered = false
             profileRequested = false
+            registrationPending = false
             connectedDevice = null
             publish(BluetoothHidState(BluetoothHidState.Code.WAITING_FOR_PROFILE, "Bluetooth HID servisi kesildi. Yeniden başlat düğmesine bas."))
         }
@@ -110,10 +111,13 @@ class BluetoothHidClient(
                 REPORT_CONSUMER -> 2
                 else -> 0
             }
-            val size = maxOf(expectedSize, bufferSize).coerceIn(0, 64)
             val service = hid ?: return
-            if (hasConnectPermission() && size > 0) {
-                runCatching { service.replyReport(device, type, id, ByteArray(size)) }
+            if (!hasConnectPermission()) return
+            if (expectedSize == 0 || bufferSize < expectedSize) {
+                runCatching { service.reportError(device, BluetoothHidDevice.ERROR_RSP_UNSUPPORTED_REQ) }
+            } else {
+                // Respond with exactly the report length advertised in the HID descriptor.
+                runCatching { service.replyReport(device, type, id, ByteArray(expectedSize)) }
             }
         }
 
@@ -131,7 +135,8 @@ class BluetoothHidClient(
             publish(BluetoothHidState(BluetoothHidState.Code.UNSUPPORTED, "Bluetooth HID Device için Android 9 veya üzeri gerekir."))
             return
         }
-        if (adapter == null) {
+        val bluetoothAdapter = adapter
+        if (bluetoothAdapter == null) {
             publish(BluetoothHidState(BluetoothHidState.Code.UNSUPPORTED, "Bu telefonda Bluetooth donanımı bulunamadı."))
             return
         }
@@ -139,7 +144,7 @@ class BluetoothHidClient(
             publish(BluetoothHidState(BluetoothHidState.Code.FAILED, "Yakındaki Cihazlar izni verilmedi."))
             return
         }
-        if (!runCatching { adapter.isEnabled }.getOrDefault(false)) {
+        if (!runCatching { bluetoothAdapter.isEnabled }.getOrDefault(false)) {
             publish(BluetoothHidState(BluetoothHidState.Code.BLUETOOTH_OFF, "Telefonun Bluetooth özelliğini aç."))
             return
         }
@@ -164,7 +169,7 @@ class BluetoothHidClient(
         profileRequested = true
         publish(BluetoothHidState(BluetoothHidState.Code.WAITING_FOR_PROFILE, "Android Bluetooth HID profili başlatılıyor…"))
         val accepted = runCatching {
-            adapter.getProfileProxy(context, profileListener, BluetoothProfile.HID_DEVICE)
+            bluetoothAdapter.getProfileProxy(context, profileListener, BluetoothProfile.HID_DEVICE)
         }.getOrDefault(false)
         if (!accepted) {
             registrationPending = false
@@ -195,6 +200,7 @@ class BluetoothHidClient(
             service.registerApp(sdp, null, null, context.mainExecutor, callback)
         }.getOrDefault(false)
         if (!accepted) {
+            registrationPending = false
             profileRequested = false
             publish(BluetoothHidState(
                 BluetoothHidState.Code.FAILED,
