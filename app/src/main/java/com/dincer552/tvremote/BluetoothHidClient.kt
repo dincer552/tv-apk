@@ -35,6 +35,7 @@ class BluetoothHidClient(
     @Volatile private var connectedDevice: BluetoothDevice? = null
     @Volatile private var registered = false
     @Volatile private var profileRequested = false
+    @Volatile private var registrationPending = false
     @Volatile private var closed = false
 
     private val profileListener = object : BluetoothProfile.ServiceListener {
@@ -46,6 +47,7 @@ class BluetoothHidClient(
                 return
             }
             hid = service
+            profileRequested = false
             registerHidApp(service)
         }
 
@@ -61,6 +63,7 @@ class BluetoothHidClient(
     private val callback = object : BluetoothHidDevice.Callback() {
         override fun onAppStatusChanged(pluggedDevice: BluetoothDevice?, isRegistered: Boolean) {
             registered = isRegistered
+            registrationPending = false
             if (isRegistered) {
                 publish(BluetoothHidState(
                     BluetoothHidState.Code.READY_TO_PAIR,
@@ -69,7 +72,7 @@ class BluetoothHidClient(
                 onReadyForPairing()
             } else {
                 connectedDevice = null
-                profileRequested = hid != null
+                profileRequested = false
                 publish(BluetoothHidState(
                     BluetoothHidState.Code.FAILED,
                     "Android HID kaydını kapattı. Uygulamayı ön planda tutup yeniden başlat."
@@ -147,7 +150,11 @@ class BluetoothHidClient(
         }
         val existingService = hid
         if (existingService != null) {
-            registerHidApp(existingService)
+            if (registrationPending) {
+                publish(BluetoothHidState(BluetoothHidState.Code.REGISTERING, "Bluetooth klavye kaydı bekleniyor…"))
+            } else {
+                registerHidApp(existingService)
+            }
             return
         }
         if (profileRequested) {
@@ -160,6 +167,7 @@ class BluetoothHidClient(
             adapter.getProfileProxy(context, profileListener, BluetoothProfile.HID_DEVICE)
         }.getOrDefault(false)
         if (!accepted) {
+            registrationPending = false
             profileRequested = false
             publish(BluetoothHidState(
                 BluetoothHidState.Code.FAILED,
@@ -173,6 +181,8 @@ class BluetoothHidClient(
             publish(BluetoothHidState(BluetoothHidState.Code.FAILED, "Bluetooth bağlantı izni eksik."))
             return
         }
+        if (registrationPending) return
+        registrationPending = true
         publish(BluetoothHidState(BluetoothHidState.Code.REGISTERING, "TV Kumanda HID klavye profili kaydediliyor…"))
         val sdp = BluetoothHidDeviceAppSdpSettings(
             "TV Kumanda",
@@ -255,6 +265,7 @@ class BluetoothHidClient(
         hid = null
         registered = false
         profileRequested = false
+        registrationPending = false
         connectedDevice = null
         if (service != null && hasConnectPermission()) {
             runCatching { service.unregisterApp() }
