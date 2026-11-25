@@ -106,11 +106,7 @@ class BluetoothHidClient(
         }
 
         override fun onGetReport(device: BluetoothDevice, type: Byte, id: Byte, bufferSize: Int) {
-            val expectedSize = when (id.toInt()) {
-                REPORT_KEYBOARD -> 8
-                REPORT_CONSUMER -> 2
-                else -> 0
-            }
+            val expectedSize = if (id.toInt() == REPORT_KEYBOARD) 8 else 0
             val service = hid ?: return
             if (!hasConnectPermission()) return
             if (expectedSize == 0 || bufferSize < expectedSize) {
@@ -216,43 +212,32 @@ class BluetoothHidClient(
             service.connectedDevices.firstOrNull()
         }.getOrNull() ?: return false
 
+        // QN85C e-Manual maps these standard keyboard usages to TV functions.
         val keyboardUsage = when (key) {
+            "Power" -> 0x3A       // F1: Power
+            "Menu" -> 0x3D        // F4: Settings screen
+            "More" -> 0x3B        // F2: Settings / numeric / option pad
+            "Home" -> 0x3E        // F5: Home screen
+            "Source" -> 0x3F      // F6: Sources
+            "Mute" -> 0x41        // F8: Mute
+            "VOL-" -> 0x42        // F9: Volume down
+            "VOL+" -> 0x43        // F10: Volume up
+            "CH+" -> 0x44         // F11: Channel up
+            "CH-" -> 0x45         // F12: Channel down
             "Up" -> 0x52
             "Down" -> 0x51
             "Left" -> 0x50
             "Right" -> 0x4F
-            "OK" -> 0x28
-            "Back" -> 0x29
+            "OK" -> 0x28         // Enter
+            "Back" -> 0x29       // Escape
             "Number 1" -> 0x1E
-            "Menu", "More" -> 0x65
-            else -> null
-        }
-        val consumerUsage = when (key) {
-            "Power" -> 0x0030
-            "Source" -> 0x0089
-            "Home" -> 0x0223
-            "CH+" -> 0x009C
-            "CH-" -> 0x009D
-            "Mute" -> 0x00E2
-            "VOL+" -> 0x00E9
-            "VOL-" -> 0x00EA
             else -> null
         }
 
-        val reportId: Int
-        val pressed: ByteArray
-        val released: ByteArray
-        if (keyboardUsage != null) {
-            reportId = REPORT_KEYBOARD
-            pressed = byteArrayOf(0, 0, keyboardUsage.toByte(), 0, 0, 0, 0, 0)
-            released = ByteArray(8)
-        } else if (consumerUsage != null) {
-            reportId = REPORT_CONSUMER
-            pressed = byteArrayOf((consumerUsage and 0xFF).toByte(), ((consumerUsage shr 8) and 0xFF).toByte())
-            released = ByteArray(2)
-        } else {
-            return false
-        }
+        if (keyboardUsage == null) return false
+        val reportId = REPORT_KEYBOARD
+        val pressed = byteArrayOf(0, 0, keyboardUsage.toByte(), 0, 0, 0, 0, 0)
+        val released = ByteArray(8)
 
         val sent = runCatching { service.sendReport(device, reportId, pressed) }.getOrDefault(false)
         if (sent) {
@@ -290,9 +275,10 @@ class BluetoothHidClient(
 
     companion object {
         private const val REPORT_KEYBOARD = 1
-        private const val REPORT_CONSUMER = 2
 
-        // Report 1: standard 8-byte keyboard; Report 2: 16-bit Consumer Control usage.
+        // Standard 8-byte keyboard report. The TV manual documents the F-key mapping
+        // used below, so the app deliberately emulates a keyboard rather than a
+        // proprietary SolarCell remote or an unrelated Consumer Control device.
         private val HID_REPORT_DESCRIPTOR = byteArrayOf(
             0x05, 0x01, 0x09, 0x06, 0xA1.toByte(), 0x01, 0x85.toByte(), 0x01,
             0x05, 0x07, 0x19, 0xE0.toByte(), 0x29, 0xE7.toByte(), 0x15, 0x00,
@@ -300,10 +286,7 @@ class BluetoothHidClient(
             0x95.toByte(), 0x01, 0x75, 0x08, 0x81.toByte(), 0x01,
             0x95.toByte(), 0x06, 0x75, 0x08, 0x15, 0x00, 0x25, 0x65,
             0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81.toByte(), 0x00,
-            0xC0.toByte(),
-            0x05, 0x0C, 0x09, 0x01, 0xA1.toByte(), 0x01, 0x85.toByte(), 0x02,
-            0x15, 0x00, 0x26, 0xFF.toByte(), 0x03, 0x19, 0x00, 0x2A, 0xFF.toByte(), 0x03,
-            0x75, 0x10, 0x95.toByte(), 0x01, 0x81.toByte(), 0x00, 0xC0.toByte()
+            0xC0.toByte()
         )
     }
 }
