@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -232,7 +233,18 @@ class MainActivity : ComponentActivity() {
         )
         bluetoothClient = BluetoothHidClient(
             context = this,
-            onState = { state -> bluetoothState.value = state },
+            onState = { state ->
+                bluetoothState.value = state
+                if (state.code == BluetoothHidState.Code.READY_TO_PAIR ||
+                    state.code == BluetoothHidState.Code.WAITING_FOR_HOST ||
+                    state.code == BluetoothHidState.Code.CONNECTED ||
+                    state.code == BluetoothHidState.Code.CONNECTING
+                ) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+            },
             onReadyForPairing = {
                 mainHandler.post {
                     if (!isFinishing && !isDestroyed) {
@@ -350,6 +362,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         if (::wifiClient.isInitialized) wifiClient.close()
         if (::bluetoothClient.isInitialized) bluetoothClient.close()
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         super.onDestroy()
     }
 
