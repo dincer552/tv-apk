@@ -57,6 +57,11 @@ class SamsungWifiClient(
         .readTimeout(0, TimeUnit.MILLISECONDS)
         .build()
 
+    private val infoHttp = OkHttpClient.Builder()
+        .connectTimeout(2, TimeUnit.SECONDS)
+        .readTimeout(2, TimeUnit.SECONDS)
+        .callTimeout(3, TimeUnit.SECONDS)
+        .build()
     private val scheduler = Executors.newSingleThreadScheduledExecutor()
     private val sessionId = AtomicLong(0)
     @Volatile private var socket: WebSocket? = null
@@ -71,7 +76,9 @@ class SamsungWifiClient(
     fun connect(ip: String, savedToken: String?) {
         val cleanIp = ip.trim()
         val octets = cleanIp.split('.')
-        val validIp = octets.size == 4 && octets.all { it.toIntOrNull() in 0..255 }
+        val validIp = octets.size == 4 && octets.all { part ->
+            part.toIntOrNull()?.let { it in 0..255 } == true
+        }
         if (!validIp) {
             onState(SamsungWifiState.Failed("Geçerli bir TV IPv4 adresi gir."))
             return
@@ -117,6 +124,13 @@ class SamsungWifiClient(
                         handshakeTask?.cancel(false)
                         handshakeTask = scheduler.schedule({
                             if (isCurrent(generation) && approved) {
+                                invalidateSession(generation)
+                                token = null
+                                approved = false
+                                onToken("")
+                                onState(SamsungWifiState.Failed(
+                                    "Kayıtlı bağlantı anahtarı doğrulanamadı. TV eşleşmesini kaldırıp yeniden izin ver."
+                                ))
                                 webSocket.close(4000, "Samsung token handshake timeout")
                             }
                         }, 12, TimeUnit.SECONDS)
@@ -273,6 +287,8 @@ class SamsungWifiClient(
         scheduler.shutdownNow()
         http.dispatcher.executorService.shutdown()
         http.connectionPool.evictAll()
+        infoHttp.dispatcher.executorService.shutdown()
+        infoHttp.connectionPool.evictAll()
     }
 
     private fun cancelPendingTasks() {
@@ -285,7 +301,7 @@ class SamsungWifiClient(
     private fun isCurrent(generation: Long): Boolean = !closed && sessionId.get() == generation
 
     private fun fetchTvInfo(ip: String): String? = runCatching {
-        http.newCall(Request.Builder().url("http://$ip:8001/api/v2/").build()).execute().use { response ->
+        infoHttp.newCall(Request.Builder().url("http://$ip:8001/api/v2/").build()).execute().use { response ->
             if (!response.isSuccessful) null else {
                 val body = response.body?.string().orEmpty()
                 val json = JSONObject(body)
