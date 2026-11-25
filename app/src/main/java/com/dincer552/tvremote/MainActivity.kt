@@ -2,13 +2,21 @@
 
 package com.dincer552.tvremote
 
+import android.Manifest
+import android.app.Activity
+import android.bluetooth.BluetoothAdapter
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.hardware.ConsumerIrManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -144,7 +152,8 @@ object SamsungIr {
     }
 }
 
-private enum class AppScreen { REMOTE, BUTTON_LIST, BUTTON_SETTINGS, IR_INFO, WIFI_SETUP }
+private enum class AppScreen { REMOTE, BUTTON_LIST, BUTTON_SETTINGS, IR_INFO, WIFI_SETUP, BLUETOOTH_SETUP }
+private enum class ConnectionMode { WIFI, BLUETOOTH, IR }
 
 private fun wifiKeyCode(key: String): String? = when (key) {
     "Power" -> "KEY_POWER"
@@ -173,9 +182,42 @@ class MainActivity : ComponentActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val wifiPreferences by lazy { getSharedPreferences("tv_wifi_profile", Context.MODE_PRIVATE) }
     private val wifiState = mutableStateOf<SamsungWifiState>(SamsungWifiState.Disconnected)
+    private val bluetoothState = mutableStateOf(BluetoothHidState())
     private val tvInfo = mutableStateOf("")
     private val discoveredIps = mutableStateOf<List<String>>(emptyList())
     private val preferences by lazy { getSharedPreferences("tv_remote_profile_v2", Context.MODE_PRIVATE) }
+    private lateinit var bluetoothClient: BluetoothHidClient
+
+    private val bluetoothPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.all { it }) beginBluetoothHid()
+        else bluetoothState.value = BluetoothHidState(
+            BluetoothHidState.Code.FAILED,
+            "Bluetooth için Yakındaki Cihazlar izni gerekli. Android ayarlarından izin ver."
+        )
+    }
+    private val enableBluetoothLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) startBluetoothHidRegistration()
+        else bluetoothState.value = BluetoothHidState(BluetoothHidState.Code.BLUETOOTH_OFF, "Bluetooth açılmadı.")
+    }
+    private val discoverableLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode > Activity.RESULT_CANCELED) {
+            bluetoothState.value = BluetoothHidState(
+                BluetoothHidState.Code.READY_TO_PAIR,
+                "Telefon 5 dakika görünür. TV'de Bluetooth cihaz listesini yenile."
+            )
+        } else {
+            bluetoothState.value = BluetoothHidState(
+                BluetoothHidState.Code.FAILED,
+                "Telefon görünür yapılmadı. TV'nin telefonu bulabilmesi için görünürlük izni gerekli."
+            )
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -187,6 +229,20 @@ class MainActivity : ComponentActivity() {
                 else wifiPreferences.edit().putString("token", token).commit()
             },
             onTvInfo = { info -> mainHandler.post { tvInfo.value = info.orEmpty() } }
+        )
+        bluetoothClient = BluetoothHidClient(
+            context = this,
+            onState = { state -> bluetoothState.value = state },
+            onReadyForPairing = {
+                mainHandler.post {
+                    if (!isFinishing && !isDestroyed) {
+                        discoverableLauncher.launch(
+                            Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE)
+                                .putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 300)
+                        )
+                    }
+                }
+            }
         )
         val initialCommands = loadCommands()
         val hasEmitter = runCatching { ir.hasIrEmitter() }.getOrDefault(false)
@@ -218,7 +274,10 @@ class MainActivity : ComponentActivity() {
                             val found = SamsungWifiClient.discover(applicationContext)
                             mainHandler.post { discoveredIps.value = found }
                         }.start()
-                    }
+                    },
+                    bluetoothState = bluetoothState,
+                    onBluetoothStart = ::requestBluetoothHid,
+                    onBluetoothSend = { key -> bluetoothClient.sendKey(key) }
                 )
             }
         }
@@ -234,6 +293,44 @@ class MainActivity : ComponentActivity() {
                 }
             }, 500)
         }
+    }
+
+    private fun requestBluetoothHid() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val required = arrayOf(
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_ADVERTISE
+            )
+            val missing = required.filter {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                bluetoothPermissionLauncher.launch(missing.toTypedArray())
+                return
+            }
+        }
+        beginBluetoothHid()
+    }
+
+    private fun beginBluetoothHid() {
+        val adapter = BluetoothAdapter.getDefaultAdapter()
+        if (adapter == null) {
+            bluetoothState.value = BluetoothHidState(
+                BluetoothHidState.Code.UNSUPPORTED,
+                "Bu telefonda Bluetooth donanımı bulunamadı."
+            )
+            return
+        }
+        val enabled = runCatching { adapter.isEnabled }.getOrDefault(false)
+        if (!enabled) {
+            enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            return
+        }
+        startBluetoothHidRegistration()
+    }
+
+    private fun startBluetoothHidRegistration() {
+        if (::bluetoothClient.isInitialized) bluetoothClient.start()
     }
 
     private fun transmit(command: IrCommand): String? {
@@ -252,6 +349,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         if (::wifiClient.isInitialized) wifiClient.close()
+        if (::bluetoothClient.isInitialized) bluetoothClient.close()
         super.onDestroy()
     }
 
@@ -302,13 +400,19 @@ private fun TvRemoteApp(
     onWifiConnect: (String) -> Unit,
     onWifiDisconnect: () -> Unit,
     onWifiSend: (String) -> Boolean,
-    onWifiDiscover: () -> Unit
+    onWifiDiscover: () -> Unit,
+    bluetoothState: androidx.compose.runtime.MutableState<BluetoothHidState>,
+    onBluetoothStart: () -> Unit,
+    onBluetoothSend: (String) -> Boolean
 ) {
     var screen by remember { mutableStateOf(AppScreen.REMOTE) }
     var wifiHost by remember { mutableStateOf(initialWifiHost) }
-    var useWifi by remember { mutableStateOf(true) }
+    var selectedMode by remember { mutableStateOf(ConnectionMode.WIFI) }
     LaunchedEffect(wifiState.value) {
         if (wifiState.value is SamsungWifiState.Connected) screen = AppScreen.REMOTE
+    }
+    LaunchedEffect(bluetoothState.value.code) {
+        if (bluetoothState.value.code == BluetoothHidState.Code.CONNECTED) screen = AppScreen.REMOTE
     }
     var selectedKey by remember { mutableStateOf("Power") }
     var commands by remember { mutableStateOf(initialCommands) }
@@ -321,14 +425,21 @@ private fun TvRemoteApp(
 
     fun pressKey(key: String) {
         val title = remoteKeys.first { it.id == key }.title
-        if (useWifi) {
-            status = if (wifiState.value is SamsungWifiState.Connected && onWifiSend(key)) "$title · Wi-Fi"
-                else "Wi-Fi bağlı değil. Bağlantıyı kontrol et."
-            return
+        when (selectedMode) {
+            ConnectionMode.WIFI -> {
+                status = if (wifiState.value is SamsungWifiState.Connected && onWifiSend(key)) "$title · Wi-Fi"
+                    else "Wi-Fi bağlı değil. Bağlantı ekranını kontrol et."
+            }
+            ConnectionMode.BLUETOOTH -> {
+                status = if (bluetoothState.value.code == BluetoothHidState.Code.CONNECTED && onBluetoothSend(key)) "$title · Bluetooth"
+                    else "Bluetooth TV'ye bağlı değil. Bluetooth bağlantı ekranını kontrol et."
+            }
+            ConnectionMode.IR -> {
+                val command = commands[key]
+                status = if (command == null) "$title tuşu için IR ayarı yok. Üç nokta menüsünden Tuş ayarları ve test bölümünü aç."
+                    else onTransmit(command) ?: "$title · IR"
+            }
         }
-        val command = commands[key]
-        if (command == null) status = "$title tuşu için IR ayarı yok. Üç nokta menüsünden Tuş ayarları ve test bölümünü aç."
-        else status = onTransmit(command) ?: "$title · IR"
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = RemoteBg) {
@@ -339,9 +450,16 @@ private fun TvRemoteApp(
                 onOpenButtonList = { screen = AppScreen.BUTTON_LIST },
                 onOpenInfo = { screen = AppScreen.IR_INFO },
                 onOpenWifi = { screen = AppScreen.WIFI_SETUP },
+                onOpenBluetooth = { screen = AppScreen.BLUETOOTH_SETUP; onBluetoothStart() },
                 wifiConnected = wifiState.value is SamsungWifiState.Connected,
-                useWifi = useWifi,
-                onToggleMode = { useWifi = !useWifi }
+                mode = selectedMode,
+                onModeChange = { mode ->
+                    selectedMode = mode
+                    if (mode == ConnectionMode.BLUETOOTH) {
+                        screen = AppScreen.BLUETOOTH_SETUP
+                        onBluetoothStart()
+                    }
+                }
             )
             AppScreen.BUTTON_LIST -> ButtonListScreen(
                 commands = commands,
@@ -383,19 +501,28 @@ private fun TvRemoteApp(
                 onDisconnect = onWifiDisconnect,
                 onBack = { screen = AppScreen.REMOTE }
             )
+            AppScreen.BLUETOOTH_SETUP -> BluetoothSetupScreen(
+                state = bluetoothState.value,
+                onStart = onBluetoothStart,
+                onBack = { screen = AppScreen.REMOTE }
+            )
         }
     }
 }
 
 @Composable
-private fun ModeSlider(useWifi: Boolean, onToggle: () -> Unit) {
+private fun ModeSlider(mode: ConnectionMode, onModeChange: (ConnectionMode) -> Unit) {
     val thumbOffset by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (useWifi) 3.dp else 57.dp,
+        targetValue = when (mode) {
+            ConnectionMode.WIFI -> 3.dp
+            ConnectionMode.BLUETOOTH -> 57.dp
+            ConnectionMode.IR -> 111.dp
+        },
         label = "connection-mode-thumb"
     )
     Box(
-        modifier = Modifier.width(116.dp).height(34.dp).clip(RoundedCornerShape(20.dp))
-            .background(Color(0xFFDCE5F1)).clickable(onClick = onToggle).padding(2.dp)
+        modifier = Modifier.width(168.dp).height(34.dp).clip(RoundedCornerShape(20.dp))
+            .background(Color(0xFFDCE5F1)).padding(2.dp)
     ) {
         Box(
             modifier = Modifier.align(Alignment.CenterStart).offset(x = thumbOffset)
@@ -403,15 +530,77 @@ private fun ModeSlider(useWifi: Boolean, onToggle: () -> Unit) {
                 .background(Color(0xFF087CF0))
         )
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                Text("Wi-Fi", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-                    color = if (useWifi) Color.White else Color(0xFF334155))
-            }
-            Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                Text("IR", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
-                    color = if (!useWifi) Color.White else Color(0xFF334155))
+            listOf(
+                ConnectionMode.WIFI to "Wi-Fi",
+                ConnectionMode.BLUETOOTH to "BT",
+                ConnectionMode.IR to "IR"
+            ).forEach { (option, label) ->
+                Box(
+                    Modifier.weight(1f).fillMaxHeight().clickable { onModeChange(option) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                        color = if (mode == option) Color.White else Color(0xFF334155))
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun BluetoothSetupScreen(
+    state: BluetoothHidState,
+    onStart: () -> Unit,
+    onBack: () -> Unit
+) {
+    val connected = state.code == BluetoothHidState.Code.CONNECTED
+    Column(Modifier.fillMaxSize().padding(18.dp)) {
+        ScreenHeader("Bluetooth kumanda", onBack)
+        Text(
+            "Telefonu TV'ye standart Bluetooth klavye/HID kumanda olarak tanıtıyoruz. Bu yöntem Wi-Fi ağından bağımsızdır.",
+            fontSize = 12.sp,
+            color = Color.DarkGray
+        )
+        Spacer(Modifier.height(12.dp))
+        Surface(color = Color.White, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp)) {
+                Text(
+                    if (connected) "TV bağlantısı kuruldu" else state.message,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (connected) RemoteGreen else RemoteInk
+                )
+                if (state.hostName.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Bağlanan cihaz: " + state.hostName, fontSize = 11.sp, color = Color.Gray)
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Button(onClick = onStart, modifier = Modifier.fillMaxWidth()) {
+            Text(if (connected) "BLUETOOTH'U YENİDEN HAZIRLA" else "BLUETOOTH'U HAZIRLA")
+        }
+        Spacer(Modifier.height(16.dp))
+        Text("TV üzerinde yapılacak işlem", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "Home > Ayarlar > Tüm Ayarlar > Bağlantı > Bluetooth Cihaz Listesi",
+            fontSize = 12.sp,
+            color = Color.DarkGray
+        )
+        Text(
+            "Telefon görünür olduktan sonra TV'de Yenile seç. Listede “TV Kumanda” veya telefonun adı klavye olarak görünürse seçip eşleştir.",
+            fontSize = 12.sp,
+            color = Color.DarkGray
+        )
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "Önemli: Android, HID kaydını uygulama ön planda değilken otomatik kapatabilir. Eşleştirme ve kullanım sırasında uygulamayı kapatma; ekranı açık tut. Yön tuşları ve OK ilk test edilecek komutlardır. Güç, kaynak ve ses komutları TV'nin HID eşlemesine göre değişebilir.",
+            fontSize = 11.sp,
+            color = Color.Gray
+        )
+        Spacer(Modifier.weight(1f))
+        TextButton(onClick = onBack, modifier = Modifier.align(Alignment.End)) { Text("Kumandaya dön") }
     }
 }
 
@@ -422,9 +611,10 @@ private fun RemoteScreen(
     onOpenButtonList: () -> Unit,
     onOpenInfo: () -> Unit,
     onOpenWifi: () -> Unit,
+    onOpenBluetooth: () -> Unit,
     wifiConnected: Boolean,
-    useWifi: Boolean,
-    onToggleMode: () -> Unit
+    mode: ConnectionMode,
+    onModeChange: (ConnectionMode) -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     Column(
@@ -450,6 +640,10 @@ private fun RemoteScreen(
                         onClick = { menuExpanded = false; onOpenWifi() }
                     )
                     DropdownMenuItem(
+                        text = { Text("Bluetooth bağlantısı") },
+                        onClick = { menuExpanded = false; onOpenBluetooth() }
+                    )
+                    DropdownMenuItem(
                         text = { Text("IR verici bilgisi") },
                         onClick = { menuExpanded = false; onOpenInfo() }
                     )
@@ -457,7 +651,7 @@ private fun RemoteScreen(
             }
         }
         Spacer(Modifier.height(6.dp))
-        ModeSlider(useWifi = useWifi, onToggle = onToggleMode)
+        ModeSlider(mode = mode, onModeChange = onModeChange)
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             RemoteRoundButton("⏻", accent = RemoteGreen, configured = "Power" in savedKeys, onClick = { onPress("Power") })
