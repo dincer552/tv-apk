@@ -68,7 +68,7 @@ object AirConditionerIr {
         val next = nextState(action, state)
         val out = mutableListOf<AcIrCandidate>()
 
-        if (action != AcAction.SWING && action != AcAction.SLEEP) {
+        if (action != AcAction.SWING && action != AcAction.SLEEP && action != AcAction.QUICK_COOL) {
             val lgCommand = buildLg(next, lgTiming, "LG 28-bit klima")
             out += AcIrCandidate("LG", "LG 28-bit", lgCommand, next)
             val lg2Command = buildLg(next, lg2Timing, "LG2 28-bit klima")
@@ -200,7 +200,7 @@ object AirConditionerIr {
         }
         p += coolixTiming.bitMark
         p += coolixTiming.gap
-        p += 10000
+        p += 100000
         return p.joinToString(",")
     }
 
