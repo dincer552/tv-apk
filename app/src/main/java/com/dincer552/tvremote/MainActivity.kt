@@ -526,6 +526,7 @@ private fun TvRemoteApp(
                         onOpenWifi = { screen = AppScreen.WIFI_SETUP },
                         onOpenBluetooth = { screen = AppScreen.BLUETOOTH_SETUP; onBluetoothStart() },
                         wifiConnected = wifiState.value is SamsungWifiState.Connected,
+                        onSelectAirConditioner = { deviceMode = DeviceMode.AIR_CONDITIONER },
                         mode = selectedMode,
                         onModeChange = { mode ->
                             selectedMode = mode
@@ -610,6 +611,37 @@ private fun TvRemoteApp(
                     onPersistAcProfiles(acProfiles)
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun DeviceModeSelector(
+    selected: DeviceMode,
+    onSelectAirConditioner: () -> Unit,
+    onSelectTv: (() -> Unit)? = null
+) {
+    Row(
+        modifier = Modifier.clip(RoundedCornerShape(18.dp)).background(Color(0xFFE1E7EF)).padding(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.width(92.dp).height(30.dp).clip(RoundedCornerShape(15.dp))
+                .background(if (selected == DeviceMode.TV) Color(0xFF087CF0) else Color.Transparent)
+                .clickable { onSelectTv?.invoke() },
+            contentAlignment = Alignment.Center
+        ) {
+            Text("TV", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                color = if (selected == DeviceMode.TV) Color.White else Color(0xFF334155))
+        }
+        Box(
+            Modifier.width(92.dp).height(30.dp).clip(RoundedCornerShape(15.dp))
+                .background(if (selected == DeviceMode.AIR_CONDITIONER) Color(0xFF087CF0) else Color.Transparent)
+                .clickable(onClick = onSelectAirConditioner),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("KLİMA", fontSize = 11.sp, fontWeight = FontWeight.SemiBold,
+                color = if (selected == DeviceMode.AIR_CONDITIONER) Color.White else Color(0xFF334155))
         }
     }
 }
@@ -717,6 +749,7 @@ private fun RemoteScreen(
     onOpenWifi: () -> Unit,
     onOpenBluetooth: () -> Unit,
     wifiConnected: Boolean,
+    onSelectAirConditioner: () -> Unit,
     mode: ConnectionMode,
     onModeChange: (ConnectionMode) -> Unit
 ) {
@@ -754,6 +787,8 @@ private fun RemoteScreen(
                 }
             }
         }
+        Spacer(Modifier.height(4.dp))
+        DeviceModeSelector(selected = DeviceMode.TV, onSelectAirConditioner = onSelectAirConditioner)
         Spacer(Modifier.height(6.dp))
         ModeSlider(mode = mode, onModeChange = onModeChange)
         Spacer(Modifier.height(14.dp))
