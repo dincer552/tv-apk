@@ -741,6 +741,300 @@ private fun BluetoothSetupScreen(
 }
 
 @Composable
+private fun AirConditionerRemoteScreen(
+    state: AcState,
+    hasEmitter: Boolean,
+    status: String,
+    onAction: (AcAction) -> Unit,
+    onOpenSettings: () -> Unit,
+    onSelectTv: () -> Unit
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(
+            Modifier.fillMaxWidth().height(44.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("‹", fontSize = 32.sp, color = Color.Black)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Altus Klima", fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = Color.Black)
+                Text("ALK 1840 A++", fontSize = 10.sp, color = Color.Gray)
+            }
+            Box {
+                Text("⋮", fontSize = 27.sp, color = Color.Black, modifier = Modifier.clickable { menuExpanded = true })
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Tuş ayarları ve protokol testi") },
+                        onClick = { menuExpanded = false; onOpenSettings() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("TV kumandasına dön") },
+                        onClick = { menuExpanded = false; onSelectTv() }
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        DeviceModeSelector(
+            selected = DeviceMode.AIR_CONDITIONER,
+            onSelectAirConditioner = {},
+            onSelectTv = onSelectTv
+        )
+        Spacer(Modifier.height(10.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            color = Color(0xFFFDFDFC),
+            shape = RoundedCornerShape(32.dp),
+            shadowElevation = 3.dp
+        ) {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("ALTUS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF52665D), letterSpacing = 1.4.sp)
+                    Text(if (state.power) "● AÇIK" else "○ KAPALI", fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold, color = if (state.power) RemoteGreen else Color.Gray)
+                }
+                Spacer(Modifier.height(12.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth().height(128.dp),
+                    color = Color(0xFFE1EAE5),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFC8D5CE))
+                ) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(state.mode.label.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF486257))
+                            Text("°C", fontSize = 11.sp, color = Color(0xFF486257))
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(if (state.power) state.temperature.toString() else "--",
+                                fontSize = 48.sp, fontWeight = FontWeight.Light, color = Color(0xFF263A31))
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("FAN", fontSize = 9.sp, color = Color(0xFF61766B))
+                                Text(state.fan.label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF354A40))
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                    AcRemoteButton("⏻", "AÇ / KAPAT", isPower = true, active = state.power) { onAction(AcAction.POWER) }
+                    AcRemoteButton("⌃", "SICAKLIK +") { onAction(AcAction.TEMP_UP) }
+                    AcRemoteButton("MOD", "MOD") { onAction(AcAction.MODE) }
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                    AcRemoteButton("❄", "HIZLI SOĞUTMA") { onAction(AcAction.QUICK_COOL) }
+                    AcRemoteButton("⌄", "SICAKLIK −") { onAction(AcAction.TEMP_DOWN) }
+                    AcRemoteButton("≋", "FAN HIZI") { onAction(AcAction.FAN) }
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                    AcRemoteButton("↕", "DİKEY HAVA") { onAction(AcAction.SWING) }
+                    AcRemoteButton("☾", "UYKU") { onAction(AcAction.SLEEP) }
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    if (!hasEmitter) "Bu telefonda IR vericisi algılanmadı."
+                    else "Her tuşun protokolünü ⋮ menüsünden ayrı ayrı deneyip kaydedebilirsin.",
+                    fontSize = 10.sp, color = if (hasEmitter) Color.Gray else Color(0xFFB3261E),
+                    textAlign = TextAlign.Center
+                )
+                if (status.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(status, fontSize = 10.sp, color = Color(0xFF66736C), textAlign = TextAlign.Center)
+                }
+            }
+        }
+        Spacer(Modifier.height(5.dp))
+        Text("IR · Redmi Note 12 Pro+ 5G", fontSize = 9.sp, color = Color.Gray)
+    }
+}
+
+@Composable
+private fun AcRemoteButton(
+    symbol: String,
+    label: String,
+    isPower: Boolean = false,
+    active: Boolean = false,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier.width(88.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = onClick).padding(vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Surface(
+            modifier = Modifier.size(58.dp),
+            shape = CircleShape,
+            color = when {
+                isPower && active -> Color(0xFFE0F1E8)
+                isPower -> Color(0xFFFCE8E6)
+                else -> Color(0xFFF1F3F2)
+            }
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    symbol,
+                    fontSize = if (symbol == "MOD") 15.sp else 26.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isPower && active) Color(0xFF168353) else if (isPower) Color(0xFFB3261E) else RemoteInk
+                )
+            }
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(label, fontSize = 8.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF57635D), textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
+private fun AcButtonListScreen(
+    profiles: Map<String, String>,
+    onBack: () -> Unit,
+    onSelect: (AcAction) -> Unit
+) {
+    Column(Modifier.fillMaxSize().padding(18.dp)) {
+        ScreenHeader("Altus · Tuş ayarları", onBack)
+        Text(
+            "Her fonksiyonu ayrı ayrı gönder. Klima tepki verirse o tuş için çalışan protokolü kaydet.",
+            fontSize = 12.sp, color = Color.DarkGray
+        )
+        Spacer(Modifier.height(10.dp))
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            AcAction.entries.forEach { action ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        .clip(RoundedCornerShape(14.dp)).background(Color.White)
+                        .clickable { onSelect(action) }
+                        .padding(horizontal = 14.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(action.title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text(
+                            profiles[action.id]?.let { "Kaydedildi · $it" } ?: "Henüz test edilmedi",
+                            fontSize = 10.sp, color = if (profiles.containsKey(action.id)) RemoteGreen else Color.Gray
+                        )
+                    }
+                    Text("Dene  ›", fontSize = 12.sp, color = Color.DarkGray)
+                }
+            }
+        }
+        Text(
+            "ALK 1840 A++ için kesin protokol bilgisi yayımlanmadığından LG, LG2 ve Coolix adayları ayrı ayrı denenir.",
+            fontSize = 10.sp, color = Color.Gray
+        )
+    }
+}
+
+@Composable
+private fun AcButtonSettingsScreen(
+    action: AcAction,
+    state: AcState,
+    hasEmitter: Boolean,
+    savedProfile: String?,
+    onBack: () -> Unit,
+    onTransmit: (IrCommand) -> String?,
+    onAccepted: (AcIrCandidate) -> Unit,
+    onClear: () -> Unit
+) {
+    val candidates = remember(action, state) { AirConditionerIr.candidates(action, state) }
+    var candidateIndex by remember(action, state) { mutableIntStateOf(0) }
+    var pending by remember { mutableStateOf<AcIrCandidate?>(null) }
+    var feedbackOpen by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("Klimayı telefona doğru çevir ve ilk protokolü dene.") }
+
+    fun sendCurrentCandidate() {
+        val candidate = candidates.getOrNull(candidateIndex)
+        if (candidate == null) {
+            status = "Bu işlev için aday protokoller bitti."
+            return
+        }
+        val error = onTransmit(candidate.command)
+        if (error != null) {
+            status = error
+            return
+        }
+        pending = candidate
+        feedbackOpen = true
+        status = "Sinyal gönderildi · " + candidate.profileName
+    }
+
+    Column(Modifier.fillMaxSize().padding(18.dp)) {
+        ScreenHeader(action.title, onBack)
+        Text("Test edilen durum: ${state.mode.label} · ${state.temperature}°C · ${state.fan.label}",
+            fontSize = 11.sp, color = Color.DarkGray)
+        Spacer(Modifier.height(10.dp))
+        if (savedProfile != null) {
+            Surface(color = Color.White, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("Kayıtlı protokol: $savedProfile", fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    TextButton(onClick = onClear) { Text("Bu tuşun kaydını sil") }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        Surface(color = Color.White, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp)) {
+                Text("Protokol denemesi ${(candidateIndex + 1).coerceAtMost(candidates.size)} / ${candidates.size}",
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                candidates.forEachIndexed { index, candidate ->
+                    Text(
+                        (if (index < candidateIndex) "✓ " else if (index == candidateIndex) "● " else "○ ") + candidate.profileName,
+                        fontSize = 11.sp, color = if (index == candidateIndex) RemoteInk else Color.Gray,
+                        modifier = Modifier.padding(vertical = 3.dp)
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = { sendCurrentCandidate() },
+            enabled = hasEmitter && candidates.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (candidateIndex == 0) "SİNYALİ GÖNDER" else "SONRAKİ PROTOKOLÜ DENE")
+        }
+        Spacer(Modifier.height(10.dp))
+        Text("Klima bip sesi verirse veya ayarı değişirse “Evet, çalıştı” seç. Hiç tepki yoksa sonraki adayı dene.",
+            fontSize = 11.sp, color = Color.DarkGray)
+        Spacer(Modifier.height(10.dp))
+        Text("Durum: $status", fontSize = 11.sp, color = Color.Gray)
+        Spacer(Modifier.weight(1f))
+        TextButton(onClick = onBack, modifier = Modifier.align(Alignment.End)) { Text("Tuş listesine dön") }
+    }
+
+    if (feedbackOpen && pending != null) {
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Klima tepki verdi mi?") },
+            text = { Text("${action.title} için ${pending!!.profileName} sinyali gönderildi. Klima bip sesi verdi veya beklediğin işlemi yaptı mı?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val accepted = pending
+                    feedbackOpen = false
+                    if (accepted != null) onAccepted(accepted)
+                }) { Text("Evet, çalıştı · Kaydet") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    feedbackOpen = false
+                    pending = null
+                    candidateIndex += 1
+                    status = if (candidateIndex < candidates.size) "İlk deneme çalışmadı. Sıradaki protokolü dene."
+                    else "Tüm hazır adaylar denendi. Model protokolü henüz doğrulanamadı."
+                }) { Text("Hayır, sonraki deneme") }
+            }
+        )
+    }
+}
+
+@Composable
 private fun RemoteScreen(
     savedKeys: Set<String>,
     onPress: (String) -> Unit,
