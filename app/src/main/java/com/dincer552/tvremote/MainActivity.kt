@@ -840,6 +840,11 @@ private fun AirConditionerRemoteScreen(
                     AcRemoteButton("☾", "UYKU") { onAction(AcAction.SLEEP) }
                 }
                 Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                    AcRemoteButton("♻", "ENERJİ TASARRUFU") { onAction(AcAction.ECO) }
+                    AcRemoteButton("☼", "EKRAN IŞIĞI") { onAction(AcAction.DISPLAY) }
+                }
+                Spacer(Modifier.height(12.dp))
                 Text(
                     if (!hasEmitter) "Bu telefonda IR vericisi algılanmadı."
                     else "Her tuşun protokolünü ⋮ menüsünden ayrı ayrı deneyip kaydedebilirsin.",
