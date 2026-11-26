@@ -154,8 +154,12 @@ object SamsungIr {
     }
 }
 
-private enum class AppScreen { REMOTE, BUTTON_LIST, BUTTON_SETTINGS, IR_INFO, WIFI_SETUP, BLUETOOTH_SETUP }
+private enum class AppScreen {
+    REMOTE, BUTTON_LIST, BUTTON_SETTINGS, IR_INFO, WIFI_SETUP, BLUETOOTH_SETUP,
+    AC_BUTTON_LIST, AC_BUTTON_SETTINGS
+}
 private enum class ConnectionMode { WIFI, BLUETOOTH, IR }
+private enum class DeviceMode { TV, AIR_CONDITIONER }
 
 private fun wifiKeyCode(key: String): String? = when (key) {
     "Power" -> "KEY_POWER"
@@ -188,6 +192,7 @@ class MainActivity : ComponentActivity() {
     private val tvInfo = mutableStateOf("")
     private val discoveredIps = mutableStateOf<List<String>>(emptyList())
     private val preferences by lazy { getSharedPreferences("tv_remote_profile_v2", Context.MODE_PRIVATE) }
+    private val acPreferences by lazy { getSharedPreferences("altus_ac_profile_v1", Context.MODE_PRIVATE) }
     private lateinit var bluetoothClient: BluetoothHidClient
 
     private val bluetoothPermissionLauncher = registerForActivityResult(
@@ -269,6 +274,8 @@ class MainActivity : ComponentActivity() {
                     hasEmitter = hasEmitter,
                     carrierRanges = carrierRanges,
                     initialCommands = initialCommands,
+                    initialAcProfiles = loadAcProfiles(),
+                    onPersistAcProfiles = ::persistAcProfiles,
                     onTransmit = ::transmit,
                     onPersist = ::persistCommands,
                     wifiState = wifiState,
@@ -367,6 +374,21 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    private fun loadAcProfiles(): Map<String, String> {
+        return runCatching {
+            val root = JSONObject(acPreferences.getString("profiles", "{}") ?: "{}")
+            AcAction.entries.mapNotNull { action ->
+                root.optString(action.id).takeIf { it.isNotBlank() }?.let { action.id to it }
+            }.toMap()
+        }.getOrDefault(emptyMap())
+    }
+
+    private fun persistAcProfiles(profiles: Map<String, String>) {
+        val root = JSONObject()
+        profiles.forEach { (action, profile) -> root.put(action, profile) }
+        acPreferences.edit().putString("profiles", root.toString()).apply()
+    }
+
     private fun loadCommands(): Map<String, IrCommand> {
         return runCatching {
             val root = JSONObject(preferences.getString("commands", "{}") ?: "{}")
@@ -404,6 +426,8 @@ private fun TvRemoteApp(
     hasEmitter: Boolean,
     carrierRanges: List<Pair<Int, Int>>,
     initialCommands: Map<String, IrCommand>,
+    initialAcProfiles: Map<String, String>,
+    onPersistAcProfiles: (Map<String, String>) -> Unit,
     onTransmit: (IrCommand) -> String?,
     onPersist: (Map<String, IrCommand>) -> Unit,
     wifiState: androidx.compose.runtime.MutableState<SamsungWifiState>,
