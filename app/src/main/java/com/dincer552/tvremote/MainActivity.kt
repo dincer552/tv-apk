@@ -526,7 +526,6 @@ private fun TvRemoteApp(
                         onOpenWifi = { screen = AppScreen.WIFI_SETUP },
                         onOpenBluetooth = { screen = AppScreen.BLUETOOTH_SETUP; onBluetoothStart() },
                         wifiConnected = wifiState.value is SamsungWifiState.Connected,
-                        onSelectAirConditioner = { deviceMode = DeviceMode.AIR_CONDITIONER },
                         mode = selectedMode,
                         onModeChange = { mode ->
                             selectedMode = mode
