@@ -70,13 +70,13 @@ object AirConditionerIr {
         val next = nextState(action, state)
         val out = mutableListOf<AcIrCandidate>()
 
-        if (action != AcAction.SWING && action != AcAction.SLEEP && action != AcAction.QUICK_COOL) {
+        if (action !in setOf(AcAction.SWING, AcAction.SLEEP, AcAction.QUICK_COOL, AcAction.ECO, AcAction.DISPLAY)) {
             val lgCommand = buildLg(next, lgTiming, "LG 28-bit klima")
             out += AcIrCandidate("LG", "LG 28-bit", lgCommand, next)
             val lg2Command = buildLg(next, lg2Timing, "LG2 28-bit klima")
             out += AcIrCandidate("LG2", "LG2 28-bit", lg2Command, next)
         }
-        if (action !in setOf(AcAction.QUICK_COOL, AcAction.SWING, AcAction.SLEEP)) {
+        if (action !in setOf(AcAction.QUICK_COOL, AcAction.SWING, AcAction.SLEEP, AcAction.ECO, AcAction.DISPLAY)) {
             out += AcIrCandidate(
                 "COOLIX",
                 "Coolix 24-bit (Beko/Midea ailesi)",
@@ -123,7 +123,7 @@ object AirConditionerIr {
     fun nextState(action: AcAction, state: AcState): AcState = when (action) {
         AcAction.POWER -> state.copy(power = !state.power)
         AcAction.TEMP_UP -> state.copy(power = true, temperature = (state.temperature + 1).coerceAtMost(30))
-        AcAction.TEMP_DOWN -> state.copy(power = true, temperature = (state.temperature - 1).coerceAtLeast(16))
+        AcAction.TEMP_DOWN -> state.copy(power = true, temperature = (state.temperature - 1).coerceAtLeast(18))
         AcAction.MODE -> state.copy(power = true, mode = state.mode.next())
         AcAction.FAN -> state.copy(power = true, fan = state.fan.next())
         AcAction.QUICK_COOL -> state.copy(power = true, mode = AcMode.COOL, temperature = 18, fan = AcFan.HIGH)
