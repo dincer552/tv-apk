@@ -34,7 +34,9 @@ enum class AcAction(val id: String, val title: String) {
     FAN("fan", "Fan hızı"),
     QUICK_COOL("quick_cool", "Hızlı soğutma"),
     SWING("swing", "Dikey hava"),
-    SLEEP("sleep", "Uyku")
+    SLEEP("sleep", "Uyku"),
+    ECO("eco", "Enerji tasarrufu"),
+    DISPLAY("display", "Ekran ışığı")
 }
 
 data class AcIrCandidate(
@@ -97,6 +99,15 @@ object AirConditionerIr {
         if (action == AcAction.SLEEP) {
             out += AcIrCandidate("COOLIX", "Coolix · Uyku", buildCoolixFixed(0xB2E003), next)
         }
+        if (action == AcAction.ECO) {
+            out += AcIrCandidate("MIDEA", "Midea · Enerji tasarrufu", buildMideaFixed(0xA202FFFFFF7E), next)
+        }
+        if (action == AcAction.DISPLAY) {
+            out += AcIrCandidate("LG", "LG · Ekran ışığı", buildLgFixed(0x088C00A6, lgTiming), next)
+            out += AcIrCandidate("LG2", "LG2 · Ekran ışığı", buildLgFixed(0x088C00A6, lg2Timing), next)
+            out += AcIrCandidate("COOLIX", "Coolix · Ekran ışığı", buildCoolixFixed(0xB5F5A5), next)
+            out += AcIrCandidate("MIDEA", "Midea · Ekran ışığı", buildMideaFixed(0xA208FFFFFF75), next)
+        }
         if (action == AcAction.QUICK_COOL) {
             val turboState = next.copy(power = true, mode = AcMode.COOL, temperature = 18, fan = AcFan.HIGH)
             out += AcIrCandidate("LG", "LG 28-bit · Hızlı soğutma", buildLg(turboState, lgTiming, "LG 28-bit hızlı soğutma"), turboState)
@@ -116,7 +127,7 @@ object AirConditionerIr {
         AcAction.MODE -> state.copy(power = true, mode = state.mode.next())
         AcAction.FAN -> state.copy(power = true, fan = state.fan.next())
         AcAction.QUICK_COOL -> state.copy(power = true, mode = AcMode.COOL, temperature = 18, fan = AcFan.HIGH)
-        AcAction.SWING, AcAction.SLEEP -> state
+        AcAction.SWING, AcAction.SLEEP, AcAction.ECO, AcAction.DISPLAY -> state
     }
 
     private fun buildLg(state: AcState, timing: Timing, description: String): IrCommand {
@@ -181,13 +192,18 @@ object AirConditionerIr {
         }
         val raw = 0xB20000L or (fan.toLong() shl 13) or
             (31L shl 8) or (tempCode.toLong() shl 4) or (mode.toLong() shl 2)
-        return IrCommand(38000, coolixFrame(raw), 1, "Coolix 24-bit klima durumu")
+        return IrCommand(38000, coolixFrame(raw), 2, "Coolix 24-bit klima durumu")
     }
 
     private fun buildCoolixOff(): IrCommand = buildCoolixFixed(0xB27BE0)
 
     private fun buildCoolixFixed(raw: Long): IrCommand =
-        IrCommand(38000, coolixFrame(raw), 1, "Coolix özel klima komutu")
+        IrCommand(38000, coolixFrame(raw), 2, "Coolix özel klima komutu")
+
+    private fun buildMideaFixed(raw: Long): IrCommand {
+        val timing = Timing(4480, 4480, 560, 1680, 560, 5600)
+        return IrCommand(38000, pulseDistance(raw, 48, timing) + ",100000", 1, "Midea 48-bit özel komut")
+    }
 
     private fun coolixFrame(data: Long): String {
         val p = mutableListOf<Int>()
