@@ -446,6 +446,10 @@ private fun TvRemoteApp(
     var screen by remember { mutableStateOf(AppScreen.REMOTE) }
     var wifiHost by remember { mutableStateOf(initialWifiHost) }
     var selectedMode by remember { mutableStateOf(ConnectionMode.WIFI) }
+    var deviceMode by remember { mutableStateOf(DeviceMode.TV) }
+    var acState by remember { mutableStateOf(AcState()) }
+    var acProfiles by remember { mutableStateOf(initialAcProfiles) }
+    var selectedAcAction by remember { mutableStateOf(AcAction.POWER) }
     LaunchedEffect(wifiState.value) {
         if (wifiState.value is SamsungWifiState.Connected) screen = AppScreen.REMOTE
     }
@@ -480,25 +484,69 @@ private fun TvRemoteApp(
         }
     }
 
+    fun openAcSettings(action: AcAction) {
+        selectedAcAction = action
+        screen = AppScreen.AC_BUTTON_SETTINGS
+    }
+
+    fun pressAc(action: AcAction) {
+        val profileId = acProfiles[action.id]
+        if (profileId.isNullOrBlank()) {
+            openAcSettings(action)
+            return
+        }
+        val candidate = AirConditionerIr.command(action, acState, profileId)
+        if (candidate == null) {
+            status = "Bu tuş için kayıtlı protokol bu komutu desteklemiyor. Tuş ayarlarından yeniden dene."
+            openAcSettings(action)
+            return
+        }
+        val error = onTransmit(candidate.command)
+        status = error ?: (action.title + " · " + candidate.profileName)
+        if (error == null) acState = candidate.nextState
+    }
+
+    fun acceptAcProfile(action: AcAction, profileId: String, nextState: AcState) {
+        acProfiles = acProfiles + (action.id to profileId)
+        onPersistAcProfiles(acProfiles)
+        acState = nextState
+        status = action.title + " ayarı kaydedildi · " + profileId
+        screen = AppScreen.REMOTE
+    }
+
     Surface(modifier = Modifier.fillMaxSize(), color = RemoteBg) {
         when (screen) {
-            AppScreen.REMOTE -> RemoteScreen(
-                savedKeys = commands.keys,
-                onPress = ::pressKey,
-                onOpenButtonList = { screen = AppScreen.BUTTON_LIST },
-                onOpenInfo = { screen = AppScreen.IR_INFO },
-                onOpenWifi = { screen = AppScreen.WIFI_SETUP },
-                onOpenBluetooth = { screen = AppScreen.BLUETOOTH_SETUP; onBluetoothStart() },
-                wifiConnected = wifiState.value is SamsungWifiState.Connected,
-                mode = selectedMode,
-                onModeChange = { mode ->
-                    selectedMode = mode
-                    if (mode == ConnectionMode.BLUETOOTH) {
-                        screen = AppScreen.BLUETOOTH_SETUP
-                        onBluetoothStart()
-                    }
+            AppScreen.REMOTE -> {
+                if (deviceMode == DeviceMode.TV) {
+                    RemoteScreen(
+                        savedKeys = commands.keys,
+                        onPress = ::pressKey,
+                        onOpenButtonList = { screen = AppScreen.BUTTON_LIST },
+                        onOpenInfo = { screen = AppScreen.IR_INFO },
+                        onOpenWifi = { screen = AppScreen.WIFI_SETUP },
+                        onOpenBluetooth = { screen = AppScreen.BLUETOOTH_SETUP; onBluetoothStart() },
+                        wifiConnected = wifiState.value is SamsungWifiState.Connected,
+                        mode = selectedMode,
+                        onModeChange = { mode ->
+                            selectedMode = mode
+                            if (mode == ConnectionMode.BLUETOOTH) {
+                                screen = AppScreen.BLUETOOTH_SETUP
+                                onBluetoothStart()
+                            }
+                        },
+                        onSelectAirConditioner = { deviceMode = DeviceMode.AIR_CONDITIONER }
+                    )
+                } else {
+                    AirConditionerRemoteScreen(
+                        state = acState,
+                        hasEmitter = hasEmitter,
+                        status = status,
+                        onAction = ::pressAc,
+                        onOpenSettings = { screen = AppScreen.AC_BUTTON_LIST },
+                        onSelectTv = { deviceMode = DeviceMode.TV }
+                    )
                 }
-            )
+            }
             AppScreen.BUTTON_LIST -> ButtonListScreen(
                 commands = commands,
                 onBack = { screen = AppScreen.REMOTE },
@@ -543,6 +591,24 @@ private fun TvRemoteApp(
                 state = bluetoothState.value,
                 onStart = onBluetoothStart,
                 onBack = { screen = AppScreen.REMOTE }
+            )
+            AppScreen.AC_BUTTON_LIST -> AcButtonListScreen(
+                profiles = acProfiles,
+                onBack = { screen = AppScreen.REMOTE },
+                onSelect = ::openAcSettings
+            )
+            AppScreen.AC_BUTTON_SETTINGS -> AcButtonSettingsScreen(
+                action = selectedAcAction,
+                state = acState,
+                hasEmitter = hasEmitter,
+                savedProfile = acProfiles[selectedAcAction.id],
+                onBack = { screen = AppScreen.AC_BUTTON_LIST },
+                onTransmit = onTransmit,
+                onAccepted = { candidate -> acceptAcProfile(selectedAcAction, candidate.profileId, candidate.nextState) },
+                onClear = {
+                    acProfiles = acProfiles - selectedAcAction.id
+                    onPersistAcProfiles(acProfiles)
+                }
             )
         }
     }
